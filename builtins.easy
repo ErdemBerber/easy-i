@@ -1,0 +1,922 @@
+"sl/control" useFile
+
+constructOnStack:  [0i8    same] [stack swap Int8,   drop] pfunc;
+constructOnStack:  [0i16   same] [stack swap Int16,  drop] pfunc;
+constructOnStack:  [0i32   same] [stack swap Int32,  drop] pfunc;
+constructOnStack:  [0i64   same] [stack swap Int64,  drop] pfunc;
+constructOnStack:  [0ix    same] [stack swap IntX,   drop] pfunc;
+constructOnStack:  [0n8    same] [stack swap Nat8,   drop] pfunc;
+constructOnStack:  [0n16   same] [stack swap Nat16,  drop] pfunc;
+constructOnStack:  [0n32   same] [stack swap Nat32,  drop] pfunc;
+constructOnStack:  [0n64   same] [stack swap Nat64,  drop] pfunc;
+constructOnStack:  [0nx    same] [stack swap NatX,   drop] pfunc;
+constructOnStack:  [0.0r32 same] [stack swap Real32, drop] pfunc;
+constructOnStack:  [0.0r64 same] [stack swap Real64, drop] pfunc;
+constructOnStack:  [FALSE  same] [stack swap Cond,   drop] pfunc;
+
+callBuiltin1: [
+  builtin:;
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    value: stack back;
+    [value.value @builtin call TRUE] [
+      stack 1 untailN value.value @builtin call constructOnStack nextInstruction ""
+    ]
+    ["invalid argument"] preif
+  ] if
+] func;
+
+callBuiltin2: [
+  builtin:;
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    value1: stack back;
+    value0: stack fieldCount 2 - stack @;
+    [value0.value value1.value @builtin call TRUE] [
+      stack 2 untailN value0.value value1.value @builtin call constructOnStack nextInstruction ""
+    ]
+    ["invalid arguments"] preif
+  ] if
+] func;
+
+builtinAbs: [[abs] callBuiltin1] func;
+
+builtinAcos: [[acos] callBuiltin1] func;
+
+checkSize: [drop FALSE] func;
+checkSize: [.value 0i8  < ~] [drop TRUE] pfunc;
+checkSize: [.value 0i16 < ~] [drop TRUE] pfunc;
+checkSize: [.value 0i32 < ~] [drop TRUE] pfunc;
+checkSize: [value: .value; value.value 0i64 < ~  value.value 0xFFFFFFFFi64 > ~ and] [drop TRUE] pfunc;
+checkSize: [value: .value; value.value 0ix  < ~  value.value 0xFFFFFFFFix  > ~ and] [drop TRUE] pfunc;
+checkSize: [.IS_NAT8  TRUE] [drop TRUE] pfunc;
+checkSize: [.IS_NAT16 TRUE] [drop TRUE] pfunc;
+checkSize: [.IS_NAT32 TRUE] [drop TRUE] pfunc;
+checkSize: [value:; value .IS_NAT64 value.value 0xFFFFFFFFi64 > ~] [drop TRUE] pfunc;
+checkSize: [value:; value .IS_NATX  value.value 0xFFFFFFFFnx  > ~] [drop TRUE] pfunc;
+builtinAllocateMemory: [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    size: stack back;
+    size checkSize ~ [
+      "invalid argument"
+    ] [
+      size.value 0n64 cast 0n64 = [
+        "invalid size"
+      ] [
+        stack untail drop size.value allocateMemory NatX , drop nextInstruction ""
+      ] if
+    ] if
+  ] if
+] func;
+
+builtinAmpersand': [node.status 0 =] [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    value1: stack back;
+    value0: stack fieldCount 2 - stack @;
+    stringSourceText: value1 isSourceText value0 isString value0 isSourceText ~ and and;
+    sourceTextString: value0 isSourceText value1 isString value1 isSourceText ~ and and;
+    value1 value0 same stringSourceText or sourceTextString or [
+      value1 isCombined [
+        stack 2 untailN stack () value0.fields value1.fields & [field:; field.name field.value copy Field ,] foldl Combined , drop
+        value1 destroyValue
+        value0 destroyValue
+        1 node.!status ""
+      ] [
+        value1 isString [
+          stringValue0: value0 isSourceText [value0.value copy] [value0.value] if;
+          stack untail drop untail drop stringValue0 value1.value & StringI, drop
+          nextInstruction ""
+        ] [
+          "invalid arguments"
+        ] if
+      ] if
+    ] [
+      "invalid arguments"
+    ] if
+  ] if
+] pfunc;
+builtinAmpersand': [node.status 1 =] [0 node.!status nextInstruction ""] pfunc;
+builtinAmpersand: [builtinAmpersand'] func;
+
+builtinAnd: [[and] callBuiltin2] func;
+
+builtinArray': [0 node.!status nextInstruction ""] func;
+builtinArray': [node.status 0 =] [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    size: stack back;
+    value: stack fieldCount 2 - stack @;
+    [size.value 0 size.value cast  < ~  size isAnyInt and] [
+      size.value 0 size.value cast = [
+        stack untail drop untail drop () Combined, drop
+      ] [
+        i: 1; stack untail drop untail drop (emptyText value copy Field) [i size.value <] [emptyText value clone Field, i 1 + !i] while Combined, drop
+      ] if
+      value destroyValue
+      1 node.!status ""
+    ]
+    ["invalid arguments"] preif
+  ] if
+] pfunc;
+builtinArray: [builtinArray'] func;
+
+builtinAsin: [[asin] callBuiltin1] func;
+
+builtinAsterisk: [[*] callBuiltin2] func;
+
+builtinAt': [0 node.!status nextInstruction ""] func;
+builtinAt': [node.status 0 =] [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    list: stack back;
+    index: stack fieldCount 2 - stack @;
+    [index.value list.fields  @ TRUE] [
+      stack untail drop untail drop index.value list.fields @ .value copy , drop
+      list destroyValue
+      1 node.!status ""
+    ] ["invalid arguments"] preif
+  ] if
+] pfunc;
+builtinAt: [builtinAt'] func;
+
+builtinAtan: [[atan] callBuiltin1] func;
+
+builtinAtan2: [[atan2] callBuiltin2] func;
+
+builtinCall': [0 node.!status nextInstruction ""] func;
+builtinCall': [node.status 1 =] [2 node.!status node.state.savedValue destroyValue ""] pfunc;
+builtinCall': [node.status 0 =] [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    body: stack back;
+    BuiltinState node.!state
+    body isCode [
+      body.program addNode
+      stack untail drop drop
+      2 node.!status ""
+    ] [
+      body isCombined [
+        callIndex: callText body.fields findField ;
+        [callIndex body.fields @ .value isCode]
+        [stack untail drop drop callIndex body.fields @ .value node.state.!savedValue node.state.savedValue .program addNode 1 node.!status ""]
+        ["invalid argument"] preif
+      ] [
+        "invalid argument"
+      ] if
+    ] if
+  ] if
+] pfunc;
+builtinCall: [builtinCall'] func;
+
+builtinCaret: [[^] callBuiltin2] func;
+
+builtinCast: [[cast] callBuiltin2] func;
+
+builtinCeil: [[ceil] callBuiltin1] func;
+
+builtinComma: [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    value: stack back;
+    list:  stack fieldCount 2 - stack @;
+    list isCombined ~ [
+      "not a list"
+    ] [
+      stack untail drop drop list.fields emptyText value Field , drop
+      nextInstruction ""
+    ] if
+  ] if
+] func;
+
+bultinCopy': [0 node.!status nextInstruction ""] func;
+bultinCopy': [0 node.status =] [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    value: stack back;
+    value isCombined [stack untail clone, drop] when
+    value destroyValue
+    1 node.!status ""
+  ] if
+] pfunc;
+builtinCopy: [bultinCopy'] func;
+
+builtinCos: [[cos] callBuiltin1] func;
+
+builtinEqual: [[=] callBuiltin2] func;
+
+builtinExclamation': [0 node.!status nextInstruction ""] func;
+builtinExclamation': [node.status 0 =] [
+  stack fieldCount 3 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 3 < [
+      stack fieldCount 3 - !reservedstack
+    ] when
+    list: stack back;
+    index: stack fieldCount 2 - stack @;
+    value: stack fieldCount 3 - stack @;
+    [index.value list.fields @ TRUE]
+    [stack 3 untailN index.value list.fields @ .value destroyValue value index.value list.fields @ .!value 1 node.!status ""]
+    ["invalid arguments"] preif
+  ] if
+] pfunc;
+builtinExclamation: [builtinExclamation'] func;
+
+builtinExp: [[exp] callBuiltin1] func;
+
+builtinFALSE: [stack FALSE Cond , drop  nextInstruction ""] func;
+
+builtinFieldCount': [0 node.!status nextInstruction ""] func;
+builtinFieldCount': [node.status 0 =] [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    list: stack back;
+    list isCombined
+    [stack untail destroyValue list.fields fieldCount Int32, drop 1 node.!status ""]
+    ["not a list"] if
+  ] if
+] pfunc;
+builtinFieldCount: [builtinFieldCount'] func;
+
+builtinFieldName': [0 node.!status nextInstruction ""] func;
+builtinFieldName': [0 node.status =] [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    index: stack back;
+    list: stack fieldCount 2 - stack @;
+    [index.value list.fields @ TRUE]
+    [stack 2 untailN stack index.value list.fields @ .name.text StringI , drop list destroyValue 1 node.!status ""]
+    ["invalid arguments"] preif
+  ] if
+] pfunc;
+builtinFieldName: [builtinFieldName'] func;
+
+builtinFloor: [[floor] callBuiltin1] func;
+
+builtinFreeMemory: [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    size: stack back;
+    size "IS_NATX" has ~ [
+      "invalid argument"
+    ] [
+      stack 1 untailN size.value freeMemory nextInstruction ""
+    ] if
+  ] if
+] func;
+
+builtinGreater: [[>] callBuiltin2] func;
+
+builtinHas': [0 node.!status nextInstruction ""] func;
+builtinHas': [0 node.status =] [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    name: stack back;
+    list: stack fieldCount 2 - stack @;
+    list isCombined name isString and ~ [
+      "invalid arguments"
+    ] [
+      stack 2 untailN stack name.value list.fields findField -1 = ~ Cond , drop list destroyValue 1 node.!status ""
+    ] if
+  ] if
+] pfunc;
+builtinHas: [builtinHas'] func;
+
+builtinIf': [builtinCall] func;
+builtinIf': [node.status 3 =] [0 node.!status  builtinCall] pfunc;
+builtinIf': [node.status 0 =] [
+  stack fieldCount 3 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 3 < [
+      stack fieldCount  3 - !reservedStack
+    ] when
+    bodyFalse: stack back;
+    bodyTrue: stack fieldCount 2 - stack @;
+    cond: stack fieldCount 3 - stack @;
+    stack 3 untailN
+    cond isCond ~ [
+      "invalid arguments"
+    ] [
+      cond.value
+      [stack bodyTrue , drop bodyFalse destroyValue ""]
+      [stack bodyFalse , drop bodyTrue destroyValue ""] if
+      3 node.!status
+    ] if
+  ] if
+] pfunc;
+builtinIf: [builtinIf'] func;
+
+builtinImportDynamic': [0 node.!status nextInstruction ""] func;
+builtinImportDynamic': [0 node.status =] [
+  system.hasImportDynamic ~ [
+    "system has no dynamicImport"
+  ] [
+    stack fieldCount 4 < [
+      "stack underflow"
+    ] [
+      stack fieldCount reservedStack - 4 < [
+        stack fieldCount 4 - !reservedStack
+      ] when
+      procName: stack fieldCount 1 - stack @;
+      libName: stack fieldCount 2 - stack @;
+      out: stack fieldCount 3 - stack @;
+      ins: stack fieldCount 4 - stack @;
+      procName isString ~ libName isString ~ out isCombined ~ ins isCombined ~ or or or [
+        "invalid arguments"
+      ] [
+        [val: .value; val "IS_INTX" has ~ val "IS_COMBINED" has ~ and] ins.fields out.fields & isAllOf ~ out.fields fieldCount 2 < ~ or [
+          "invalid arguments"
+        ] [
+          funcPtr: libName.value procName.value system.getFuncPtr;
+          funcPtr 0nx = [
+            "cannot find function"
+          ] [
+            procName.value dynamicImports.find [
+              drop  "already imported function with the same name"
+            ] [
+              stack 4 untailN
+              drop procName.value ins.fields [.value] map out.fields [.value] map funcPtr ImportedFunction dynamicImports.insert
+              ins destroyValue out destroyValue 1 node.!status ""
+            ] if
+          ] if
+        ] if
+      ] if
+    ] if
+  ] if
+] pfunc;
+builtinImportDynamic: [builtinImportDynamic'] func;
+
+builtinInsert': [0 node.!status nextInstruction ""] func;
+builtinInsert': [node.status 0 =] [
+  stack fieldCount 3 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 3 < [
+      stack fieldCount 3 - !reservedStack
+    ] when
+    list: stack back;
+    name:  stack fieldCount 2 - stack @;
+    value:  stack fieldCount 3 - stack @;
+    list isCombined ~ name isString ~ or [
+      "invalid arguments"
+    ] [
+      list.fields
+      name.value texts.find ~ [
+        drop
+        textInfo: name.value TextInfo;
+        name.value textInfo texts.insert
+        textInfo
+      ] when
+      value Field , drop
+      stack 3 untailN list destroyValue 1 node.!status ""
+    ] if
+  ] if
+] pfunc;
+builtinInsert: [builtinInsert'] func;
+
+builtinIs': [0 node.!status nextInstruction ""] func;
+builtinIs': [node.status 0 =] [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    value1: stack untail;
+    value2: untail; drop
+    [value1.value value2.value =]
+    [stack TRUE Cond , drop nextInstruction ""]
+    [[value1 value2 is]
+      [stack TRUE Cond , drop]
+      [stack FALSE Cond , drop] preif
+      value1 destroyValue value2 destroyValue
+      1 node.!status ""
+    ] preif
+  ] if
+] pfunc;
+builtinIs: [builtinIs'] func;
+
+builtinLess: [[<] callBuiltin2] func;
+
+builtinLF: [stack LF StringI , drop nextInstruction ""] func;
+
+builtinLn: [[ln] callBuiltin1] func;
+
+builtinLoop': [0 node.!status nextInstruction ""] func;
+builtinLoop': [1 node.status =] [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    cond: stack back;
+    cond isCond ~ [
+      "invalid return value"
+    ] [
+      stack untail drop drop
+      cond.value [
+        node.state.astNodes addNode ""
+      ] [
+        node.state.shouldClear [
+          node.state.savedValue destroyValue
+          2 node.!status ""
+        ] [
+          0 node.!status nextInstruction ""
+        ] if
+      ] if
+    ] if
+  ] if
+] pfunc;
+builtinLoop': [0 node.status =] [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    BuiltinState node.!state
+    value: stack back;
+    value isCode [
+      value.program addNode
+      value.program node.state.!astNodes
+      FALSE node.state.!shouldClear
+      stack untail drop drop 1 node.!status ""
+    ] [
+      value isCombined [
+        callIndex: callText value.fields findField;
+        preIndex: preText value.fields findField;
+        [callIndex value.fields @ .value isCode] [
+          preIndex -1 = [
+            value node.state.!savedValue
+            TRUE node.state.!shouldClear
+            callIndex value.fields @ .value.program node.state.!astNodes
+            value.fields registerNames
+            selfText value registerName
+            node.state.astNodes addNode
+            stack untail drop drop 1 node.!status ""
+          ] [
+            "body with PRE"
+          ] if
+        ] [
+          "non callable"
+        ] preif
+      ] [
+        "non callable"
+      ] if
+    ] if
+  ] if
+] pfunc;
+builtinLoop: [builtinLoop'] func;
+
+builtinLshift: [[lshift] callBuiltin2] func;
+
+builtinMemoryToText: [
+  stack fieldCount  2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    sizeValue: stack back;
+    ptrValue: stack fieldCount 2 - stack @;
+    ptrValue "IS_NATX" has ~ [
+      "invalid arguments"
+    ] [
+      sizeValue checkSize ~ [
+        "invalid arguments"
+      ] [
+        stack 2 untailN stack ptrValue.value sizeValue.value  memoryToText StringI , drop nextInstruction ""
+      ] if
+    ] if
+  ] if
+] func;
+
+builtinMinus: [[-] callBuiltin2] func;
+
+builtinMod: [[mod] callBuiltin2] func;
+
+builtinNeg: [[neg] callBuiltin1] func;
+
+builtinOr: [[or] callBuiltin2] func;
+
+builtinPlus: [[+] callBuiltin2] func;
+
+builtinPrint': [0 node.!status nextInstruction ""] func;
+builtinPrint': [0 node.status =] [
+  stack fieldCount  1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    value: stack untail nip;
+    value toString print
+    value isCombined [
+      value destroyValue
+      1 node.!status ""
+    ] [
+      nextInstruction ""
+    ] if
+  ] if
+] pfunc;
+builtinPrint: [builtinPrint'] func;
+
+builtinPrintStack: [dumpStack nextInstruction ""] func;
+
+builtinRcp: [[rcp] callBuiltin1] func;
+
+builtinReadMemory: [
+  stack fieldCount  2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    pointer: stack back;
+    type: stack fieldCount 2 - stack @;
+    type isCond  type isNumber or ~ pointer "IS_NATX" has ~ or [
+      "invalid argument"
+    ] [
+      stack 2 untailN
+      type.value pointer.value readMemory constructOnStack nextInstruction ""
+    ] if
+  ] if
+] func;
+
+builtinRemove': [0 node.!status nextInstruction ""] func;
+builtinRemove': [1 node.status =] [
+  node.state.savedValue destroyValue
+  node.state.savedIndex node.state.savedValue.fields remove
+  2 node.!status ""
+] pfunc;
+builtinRemove': [0 node.status =] [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    list: stack back;
+    id: stack fieldCount 2 - stack @;
+    BuiltinState node.!state list node.state.!savedValue
+    [id.value list.fields @ TRUE] [
+      stack 2 untailN id.value list.fields @ field:;
+      id.value node.state.!savedIndex
+      textInfo: field.name;
+      values: textInfo.values;
+      removeRegistrations: [i:; i values @ , i 1 + removeRegistrations] func;
+      removeRegistrations: [values @ field.value is] [1 + removeRegistrations] pfunc;
+      removeRegistrations: [values fieldCount =] [drop] pfunc;
+      () 0 removeRegistrations textInfo.!values
+      field.value destroyValue
+      1 node.!status ""
+    ] [
+      [id.value list.fields findField -1 = ~] [
+        fieldIndex: id.value list.fields findField;
+        stack 2 untailN
+        field: fieldIndex list.fields @;
+        fieldIndex node.state.!savedIndex
+        textInfo: field.name;
+        values: textInfo.values;
+        removeRegistrations: [i:; i values @ , i 1 + removeRegistrations] func;
+        removeRegistrations: [values @ field.value is] [1 + removeRegistrations] pfunc;
+        removeRegistrations: [values fieldCount =] [drop] pfunc;
+        () 0 removeRegistrations  textInfo.!values
+        field.value destroyValue
+        1 node.!status ""
+      ] [
+        "invalid arguments"
+      ] preif
+    ] preif
+  ] if
+] pfunc;
+builtinRemove: [builtinRemove'] func;
+
+builtinRshift: [[rshift] callBuiltin2] func;
+
+builtinSame: [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    stack untail v0:; untail v0 isSame Cond ,
+    nextInstruction ""
+  ] if
+] func;
+
+builtinSet': [0 node.!status nextInstruction ""] func;
+builtinSet': [1 node.status =] [
+  dst: stack back;
+  src: stack fieldCount 2 - stack @;
+  stack 2 untailN () src.fields [field:; field.name field.value copy Field ,] foldl dst.!fields
+  src destroyValue dst destroyValue 2 node.!status ""
+] pfunc;
+builtinSet': [0 node.status =] [
+  stack fieldCount 2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    dst: stack back;
+    src: stack fieldCount 2 - stack @;
+    dst isCombined src isCombined and ~ [
+      "invalid arguments"
+    ] [
+      dst.fields [.value destroyValue] each
+      1 node.!status ""
+    ] if
+  ] if
+] pfunc;
+builtinSet: [builtinSet'] func;
+
+builtinSin: [[sin] callBuiltin1] func;
+
+builtinSlash: [[/] callBuiltin2] func;
+
+builtinSqrt: [[sqrt] callBuiltin1] func;
+
+builtinTan: [[tan] callBuiltin1] func;
+
+builtinTextMemoryPointer: [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    stringValue: stack back;
+    stringValue isString ~ [
+      "invalid argument"
+    ] [
+      stack 1 untailN stack stringValue.value textMemoryPointer NatX, drop nextInstruction ""
+    ] if
+  ] if
+] func;
+
+builtinTextMemorySize: [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    stringValue: stack back;
+    stringValue isString ~ [
+      "invalid argument"
+    ] [
+      stack 1 untailN stack stringValue.value textMemorySize NatX, drop nextInstruction ""
+    ]
+  ] if
+] func;
+
+builtinTextSplit: [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    string: stack untail;
+    string isString [
+      () string.value textSplit [emptyText swap StringI Field ,] foldl Combined , drop
+      1 node.!status ""
+    ] [
+      "invalid argument"
+    ]
+    nextInstruction ""
+  ] if
+] func;
+
+builtinTilde: [[~] callBuiltin1] func;
+
+builtinToText': [0 node.!status nextInstruction ""] func;
+builtinToText': [0 node.status =] [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    value: stack untail; value toString StringI, drop
+    value destroyValue
+    1 node.!status ""
+  ] if
+] pfunc;
+builtinToText: [builtinToText'] func;
+
+builtinTRUE: [stack TRUE Cond , drop nextInstruction ""] func;
+
+builtinUntail: [
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedstack
+    ] when
+    value: stack back;
+    value isCombined ~ [
+      "not a list"
+    ] [
+      value.fields fieldCount 0 = [
+        "empty list"
+      ] [
+        stack value.fields untail nip .value , drop nextInstruction ""
+      ] if
+    ] if
+  ] if
+] func;
+
+builtinUseFile': [0 node.!status node.locals node.state.savedLocals & node.!locals nextInstruction ""] func;
+builtinUseFile': [0 node.status =] [
+  system.hasFileSystem ~ [
+    "Cannot find filesystem"
+  ] [
+    stack fieldCount 1 < [
+      "stack underflow"
+    ] [
+      stack  fieldCount reservedStack - 1 < [
+        stack fieldCount 1 - !reservedStack
+      ] when
+      BuiltinState node.!state
+      filename: stack back;
+      filename isString ~ [
+        "invalid argument"
+      ] [
+        filename.value copy ".easy" & !filename
+        filename system.loadFile ~ [
+          drop "file not found: " filename &
+        ] [
+          program:;
+          parserResult: program filename parser.parseString;
+          parserResult "data" has ~ [
+            line:column:program parserResult.offset translateOffset;;
+            "Lexical analysis failed at " filename & "(" & line toText & "," & column toText & ")" &
+          ] [
+            stack untail drop drop
+            filename program files.insert
+            filename parserResult.data prepareAst addNode
+            TRUE nodes back.!isBuiltinUseFile
+            1 node.!status ""
+          ] if
+        ] if
+      ] if
+    ] if
+  ] if
+] pfunc;
+builtinUseFile: [builtinUseFile'] func;
+
+builtinWriteMemory:  [
+  stack fieldCount  2 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 2 < [
+      stack fieldCount 2 - !reservedStack
+    ] when
+    pointer: stack back;
+    type: stack fieldCount 2 - stack @;
+    type isCond  type isNumber or ~ pointer "IS_NATX" has ~ or [
+      "invalid argument"
+    ] [
+      stack 2 untailN
+      type.value pointer.value writeMemory nextInstruction ""
+    ] if
+  ] if
+] func;
+
+builtinXor: [[xor] callBuiltin2] func;
+
+initBuiltin: [
+  name:code:;;
+  name texts.find ~ [
+    drop name name TextInfo texts.insert name texts.find drop
+  ] when
+  textInfo:;
+  @code textInfo.!builtin
+] func;
+
+initBuiltins: [
+  "abs"               @builtinAbs               initBuiltin
+  "acos"              @builtinAcos              initBuiltin
+  "allocateMemory"    @builtinAllocateMemory    initBuiltin
+  "&"                 @builtinAmpersand         initBuiltin
+  "and"               @builtinAnd               initBuiltin
+  "array"             @builtinArray             initBuiltin
+  "asin"              @builtinAsin              initBuiltin
+  "*"                 @builtinAsterisk          initBuiltin
+  "@"                 @builtinAt                initBuiltin
+  "atan"              @builtinAtan              initBuiltin
+  "atan2"             @builtinAtan2             initBuiltin
+  "call"              @builtinCall              initBuiltin
+  "^"                 @builtinCaret             initBuiltin
+  "cast"              @builtinCast              initBuiltin
+  "ceil"              @builtinCeil              initBuiltin
+  ","                 @builtinComma             initBuiltin
+  "copy"              @builtinCopy              initBuiltin
+  "cos"               @builtinCos               initBuiltin
+  "="                 @builtinEqual             initBuiltin
+  "!"                 @builtinExclamation       initBuiltin
+  "exp"               @builtinExp               initBuiltin
+  "FALSE"             @builtinFALSE             initBuiltin
+  "fieldCount"        @builtinFieldCount        initBuiltin
+  "fieldName"         @builtinFieldName         initBuiltin
+  "freeMemory"        @builtinFreeMemory        initBuiltin
+  "floor"             @builtinFloor             initBuiltin
+  ">"                 @builtinGreater           initBuiltin
+  "has"               @builtinHas               initBuiltin
+  "if"                @builtinIf                initBuiltin
+  "importDynamic"     @builtinImportDynamic     initBuiltin
+  "insert"            @builtinInsert            initBuiltin
+  "is"                @builtinIs                initBuiltin
+  "<"                 @builtinLess              initBuiltin
+  "LF"                @builtinLF                initBuiltin
+  "ln"                @builtinLn                initBuiltin
+  "loop"              @builtinLoop              initBuiltin
+  "lshift"            @builtinLshift            initBuiltin
+  "memoryToText"      @builtinMemoryToText      initBuiltin
+  "-"                 @builtinMinus             initBuiltin
+  "mod"               @builtinMod               initBuiltin
+  "neg"               @builtinNeg               initBuiltin
+  "or"                @builtinOr                initBuiltin
+  "+"                 @builtinPlus              initBuiltin
+  "print"             @builtinPrint             initBuiltin
+  "printStack"        @builtinPrintStack        initBuiltin
+  "rcp"               @builtinRcp               initBuiltin
+  "readMemory"        @builtinReadMemory        initBuiltin
+  "remove"            @builtinRemove            initBuiltin
+  "rshift"            @builtinRshift            initBuiltin
+  "same"              @builtinSame              initBuiltin
+  "set"               @builtinSet               initBuiltin
+  "sin"               @builtinSin               initBuiltin
+  "/"                 @builtinSlash             initBuiltin
+  "sqrt"              @builtinSqrt              initBuiltin
+  "tan"               @builtinTan               initBuiltin
+  "textMemoryPointer" @builtinTextMemoryPointer initBuiltin
+  "textMemorySize"    @builtinTextMemorySize    initBuiltin
+  "textSplit"         @builtinTextSplit         initBuiltin
+  "~"                 @builtinTilde             initBuiltin
+  "toText"            @builtinToText            initBuiltin
+  "TRUE"              @builtinTRUE              initBuiltin
+  "untail"            @builtinUntail            initBuiltin
+  "useFile"           @builtinUseFile           initBuiltin
+  "writeMemory"       @builtinWriteMemory       initBuiltin
+  "xor"               @builtinXor               initBuiltin
+] func;

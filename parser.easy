@@ -1,0 +1,505 @@
+"sl/control" useFile
+"utils" useFile
+
+#Parser framework
+Parser: {
+  Entry: [{
+    residue:data:;;
+  }] func;
+
+  Error: [{
+    offset:;
+  }] func;
+
+  Result: [{
+    entries:latestError:;;
+  }] func;
+
+  #Offset->Result
+  makeErrorResult: [() swap Error Result] func;
+
+  #Text->Value->Result
+  makeValueResult: [s:v:;; (s v Entry) {} Result] func;
+
+  latestError: [e1:e2:;; e1.@offset e2.@offset > [e1] [e2] if] func;
+  latestError: [drop () same] [nip] pfunc;
+  latestError: [() same] [drop] pfunc;
+
+  #Result->Result->Result
+  merge: [r1:r2:;; r1.@entries r2.@entries & r1.@latestError r2.@latestError latestError Result] func;
+};
+
+makeParser: [{
+  #Text->Result
+  parse: func;
+}] func;
+
+#a->ma
+return: [{
+  v:;
+  parse: [v Parser.makeValueResult] func;
+}] func;
+
+#ma->(a->mb)->mb
+>>=: [{
+  p:f:;;
+  parse: [
+    p.parse result:;
+    error: result.latestError;
+    entries: ();
+    result.entries [
+      entry:;
+      entry.residue entry.data @f call .parse result:;
+      error result.latestError Parser.latestError !error
+      entries result.entries & !entries
+    ] each
+
+    entries error Parser.Result
+  ] func;
+}] func;
+
+lift': [{
+  parsers:;
+  parse: [
+    values: ();
+    apply: [
+      i:;
+      i parsers @
+      {
+        i: i 1 +;
+        CALL: [values swap , drop i apply {p:; parse: [p.parse values untail drop drop] func;}];
+      } >>=
+    ] func;
+
+    apply: [1 + parsers fieldCount =] [parsers @] pfunc;
+    0 apply .parse
+  ] func;
+}] func;
+
+#(ma1, ma2,.. man)->(a1->a2->...->an->ar)->mr
+lift: [{f:; parse: [0 values unwrap' @f call Parser.makeValueResult] func;} , lift'] func;
+
+#ma->(a->b)->mb
+liftM: [f:; (p:; p) @f lift] func;
+
+zero: [.l Parser.makeErrorResult] makeParser;
+
+#ma->ma->ma
+<|>: [{
+  p1:p2:;;
+  parse: [dup p1.parse swap p2.parse Parser.merge] func;
+}] func;
+
+#ma->ma->ma
+<+>: [{
+  p1:p2:;;
+  parse: [
+    s:;
+    r1: s p1.parse;
+    r1.entries () same [
+      r2: s p2.parse;
+      r2.entries () same [
+        () r1.latestError r2.latestError Parser.latestError Parser.Result
+      ] [
+        (0 r2.entries @) {} Parser.Result
+      ] if
+    ] [
+      (0 r1.entries @) {} Parser.Result
+    ] if
+  ] func;
+}] func;
+
+#ma->mb->mb
+>>: [(2 touch) [nip] lift] func;
+
+#ma->mb->ma
+<<: [(2 touch) [drop] lift] func;
+
+getOffset: [s:; s s.l Parser.makeValueResult] makeParser;
+
+many: [{p:; parse: [@p many1 .parse] func;} () return <+>] func;
+many1: [(p:; @p @p many ) [x:xs:;; (x) xs &] lift] func;
+
+item: [s:; s fieldCount 0 > [1 s .slice1 0 s @ Parser.makeValueResult] [s.l Parser.makeErrorResult] if] makeParser;
+sat: [item swap {pred:; CALL: [c:; c @pred call [c return] [zero] if];} >>=] func;
+char: [{c:; CALL: [c =];} sat] func;
+string: [{p:textSplit; parse: [s:; s p beginsWith [p fieldCount s .slice1 p sconcat Parser.makeValueResult] [s.l Parser.makeErrorResult] if] func;}] func;
+
+#Easy grammar
+?: ["" return <+>] func;
+space: [c:; c " " = c LF = or] sat;
+isAnyOf:  [{s: textSplit; CALL: [c:; FALSE s [c =] map [or] foldl];}] func;
+isNoneOf: [{s: textSplit; CALL: [c:; FALSE s [c =] map [or] foldl ~];}] func;
+
+createLookupTable: [
+  chars: textSplit;
+  result: FALSE 256 array;
+  chars [mem: textMemoryPointer; TRUE 0n8 mem readMemory 0i32 cast result !] each
+  result
+] func;
+
+digitLookupTable: "0123456789" createLookupTable;
+nzDigitLookupTable: "123456789" createLookupTable;
+hexDigitLookupTable: "0123456789abcdefABCDEF" createLookupTable;
+nonLetters:  "-+0123456789!@,.:;{}()[]\"# " LF & createLookupTable;
+
+isDigit:    [textMemoryPointer 0n8 swap readMemory 0 cast digitLookupTable    @] func;
+isNZDigit:  [textMemoryPointer 0n8 swap readMemory 0 cast nzDigitLookupTable  @] func;
+isHexDigit: [textMemoryPointer 0n8 swap readMemory 0 cast hexDigitLookupTable @] func;
+isLetter:   [textMemoryPointer 0n8 swap readMemory 0 cast nonLetters        @ ~] func;
+
+CommentContent: [LF = ~] sat many [sconcat] liftM;
+Comment: "#" char CommentContent >> [{COMMENT_NODE:(); value:;}] liftM;
+
+SpecialName: "!" char "@" char <+> "." char many1 [sconcat] liftM <+>;
+
+ctoiTable: [
+  result: 1000n64 256 array;
+  addEntry: [mem: textMemoryPointer; 0n8 mem readMemory 0 cast result !] func;
+  0n64     "0" addEntry
+  1n64     "1" addEntry
+  2n64     "2" addEntry
+  3n64     "3" addEntry
+  4n64     "4" addEntry
+  5n64     "5" addEntry
+  6n64     "6" addEntry
+  7n64     "7" addEntry
+  8n64     "8" addEntry
+  9n64     "9" addEntry
+  10n64    "a" addEntry
+  11n64    "b" addEntry
+  12n64    "c" addEntry
+  13n64    "d" addEntry
+  14n64    "e" addEntry
+  15n64    "f" addEntry
+  10n64    "A" addEntry
+  11n64    "B" addEntry
+  12n64    "C" addEntry
+  13n64    "D" addEntry
+  14n64    "E" addEntry
+  15n64    "F" addEntry
+  result
+] call;
+
+ctoi: [
+  textMemoryPointer 0n8 swap readMemory 0 cast ctoiTable @
+  dup 15n64 > [error] when
+] func;
+
+Digit:    @isDigit    sat;
+NZDigit:  @isNZDigit  sat;
+HexDigit: @isHexDigit sat;
+NSHexDigit: HexDigit [ctoi] liftM;
+NSDigit:    Digit    [ctoi] liftM;
+NSNZDigit:  NZDigit  [ctoi] liftM;
+Sign: "-" char "+" char <+>;
+Whitespaces: space many1 [sconcat] liftM;
+
+HexNumber: "0x" string NSHexDigit many1 >> [0x10n64 accsum] liftM ;
+DecNumber: (Sign ? (NSNZDigit NSDigit many1) [x:xs:;; (x) xs & 10n64 accsum] lift NSDigit <|>)
+                                               [swap "-" = [0i64 cast neg] when] lift ;
+NumberBody: HexNumber DecNumber <+>;
+
+Decimal:  "." char NSDigit many1 >> [l:; l 10n64 accsum 0.0r64 cast 10.0r64 l fieldCount 0.0r64 cast ^ /] liftM;
+Exponent: "eE" isAnyOf sat DecNumber >>  [0.0r64 cast] liftM;
+RealBodyWithDecimal:   (DecNumber Decimal Exponent ?) [exp:; swap 0.0r64 cast + exp "" same ~ [10.0r64 exp ^ *] when] lift;
+RealBodyWithNoDecimal: (DecNumber Exponent )          [10.0r64 swap ^ swap 0.0r64 cast *] lift;
+RealBody: RealBodyWithDecimal RealBodyWithNoDecimal <+>;
+
+Real32:     (getOffset RealBody   "r32" string << RealBody   <+>) [0.0r32 cast Real32Node   ] lift;
+Real64:     (getOffset RealBody   "r64" string <<               ) [0.0r64 cast Real64Node   ] lift;
+Numberi8:   (getOffset NumberBody "i8"  string <<               ) [0i8    cast Numberi8Node ] lift;
+Numberi16:  (getOffset NumberBody "i16" string <<               ) [0i16   cast Numberi16Node] lift;
+Numberi32:  (getOffset NumberBody "i32" string << NumberBody <+>) [0i32   cast Numberi32Node] lift;
+Numberi64:  (getOffset NumberBody "i64" string <<               ) [0i64   cast Numberi64Node] lift;
+Numberix:   (getOffset NumberBody "ix"  string <<               ) [0ix    cast NumberixNode ] lift;
+Numbern8:   (getOffset NumberBody "n8"  string <<               ) [0n8    cast Numbern8Node ] lift;
+Numbern16:  (getOffset NumberBody "n16" string <<               ) [0n16   cast Numbern16Node] lift;
+Numbern32:  (getOffset NumberBody "n32" string <<               ) [0n32   cast Numbern32Node] lift;
+Numbern64:  (getOffset NumberBody "n64" string <<               ) [0n64   cast Numbern64Node] lift;
+Numbernx:   (getOffset NumberBody "nx"  string <<               ) [0nx    cast NumbernxNode ] lift;
+
+Number: Numberi8
+        Numberi16 <+>
+        Numberi64 <+>
+        Numberix  <+>
+        Numbern8  <+>
+        Numbern16 <+>
+        Numbern32 <+>
+        Numbern64 <+>
+        Numbernx  <+>
+        Numberi32 <+>;
+
+Real:   Real64
+        Real32 <+>;
+
+Letter: @isLetter sat;
+
+MemberName:
+  (
+    Letter
+    (
+      Sign
+      Sign Letter <+>
+    ) [swap copy swap &] lift
+    <+>
+
+    Letter Digit <+> Sign <+> many [sconcat] liftM
+  ) [swap copy swap &] lift
+  Sign
+  <+>;
+
+String:
+  (getOffset "\"" char "\\" char "\\" char "\"" char <|> >> "\\\"" isNoneOf sat <|> many [sconcat] liftM >> "\"" char <<) [StringNode] lift;
+
+Name:      (getOffset MemberName SpecialName <+>) [NameNode           ] lift;
+NameRead:  (getOffset "@" char Name           >>) [.name NameReadNode] lift;
+NameWrite: (getOffset "!" char Name           >>) [.name NameWriteNode] lift;
+
+NameMember:      (getOffset "." char MemberName       >>) [NameMemberNode     ] lift;
+NameReadMember:  (getOffset ".@" string Name >>) [.name    NameReadMemberNode] lift;
+NameWriteMember: (getOffset ".!" string Name >>) [.name    NameWriteMemberNode] lift;
+
+NameExpression: NameRead NameWrite <+> Name <+>;
+MemberNameExpression:   NameMember NameReadMember <+> NameWriteMember <+>;
+EOF: [s:; s fieldCount 0 = [s "eof" Parser.makeValueResult] [s zero .parse] if] makeParser;
+
+Program: [
+  {
+    parse: [
+      Whitespaces ?
+        ( Expression ExpressionWithLeadingWS many Whitespaces ? << ) [e:es:;; (e) es &] lift
+        () return <|>
+      >> .parse
+    ] func;
+  }
+] func;
+
+Object:      ( getOffset "{" char << Program "}" char <<     ) [over ObjectEndNode,  ObjectNode] lift;
+BuiltinList: ( getOffset "(" char << Program ")" char <<     ) [ListNode] lift;
+Code:        ( getOffset "[" char << Program "]" char <<     ) [CodeNode] lift;
+Comma:       ( getOffset "," char ) [NameNode] lift;
+LabelReset:  ( getOffset Name Comma <|> ":!" string << Program ";" char << ) [swap .name swap LabelResetNode] lift;
+Label:       ( getOffset Name Comma <|> ":"    char << Program ";" char << ) [swap .name swap LabelNode] lift;
+
+ProgramWithEOF: Program EOF <<;
+WSSeparableExpression: Label LabelReset <+> Real <+> Number <+> NameExpression <+> String <+> ;
+NonWSSeparableExpression: Code Object <+> BuiltinList <+> MemberNameExpression <+> Comment <+>  Comma  <+> ;
+Expression: NonWSSeparableExpression WSSeparableExpression <|> ;
+ExpressionWithLeadingWS: Whitespaces ? NonWSSeparableExpression >> Whitespaces WSSeparableExpression >> <|> ;
+
+#AST Nodes
+LabelNode: [{
+  LABEL_NODE:();
+  AST_NODE:();
+  children:;
+  name:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+LabelResetNode: [{
+  LABELRESET_NODE:();
+  AST_NODE:();
+  children:;
+  name:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+CodeNode: [{
+  CODE_NODE:();
+  AST_NODE:();
+  children:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+ObjectNode: [{
+  OBJECT_NODE:();
+  AST_NODE:();
+  children:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+ObjectEndNode: [{
+  OBJECTEND_NODE:();
+  AST_NODE:();
+  offset:;
+  filename:filenameID;
+}] func;
+
+ListNode: [{
+  LIST_NODE:();
+  AST_NODE:();
+  children:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+NameNode: [{
+  NAME_NODE:();
+  AST_NODE:();
+  name:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+NameReadNode: [{
+  NAMEREAD_NODE:();
+  AST_NODE:();
+  name:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+NameWriteNode: [{
+  NAMEWRITE_NODE:();
+  AST_NODE:();
+  name:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+NameMemberNode: [{
+  NAMEMEMBER_NODE:();
+  AST_NODE:();
+  name:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+NameReadMemberNode: [{
+  NAMEREADMEMBER_NODE:();
+  AST_NODE:();
+  name:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+NameWriteMemberNode: [{
+  NAMEWRITEMEMBER_NODE:();
+  AST_NODE:();
+  name:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+StringNode: [{
+  STRING_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Numberi8Node: [{
+  NUMBERI8_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Numberi16Node: [{
+  NUMBERI16_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Numberi32Node: [{
+  NUMBERI32_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Numberi64Node: [{
+  NUMBERI64_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+NumberixNode: [{
+  NUMBERIX_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Numbern8Node: [{
+  NUMBERN8_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Numbern16Node: [{
+  NUMBERN16_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Numbern32Node: [{
+  NUMBERN32_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Numbern64Node: [{
+  NUMBERN64_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+NumbernxNode: [{
+  NUMBERNX_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Real32Node: [{
+  REAL32_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+Real64Node: [{
+  REAL64_NODE:();
+  AST_NODE:();
+  value:;
+  offset:;
+  filename:filenameID;
+}] func;
+
+DestructNode: [{
+  DESTRUCT_NODE:();
+  AST_NODE:();
+  value:;
+  offset:0;
+  filename:filenameID;
+}] func;
+
+parseString: [
+  string:filenameID:;;
+  ls: string textSplit;
+  ls 0 ls fieldCount ArrayView ProgramWithEOF .parse r:; r.entries () same [r.latestError] [0 r.entries @] if
+] func;

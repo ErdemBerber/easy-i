@@ -1,0 +1,563 @@
+"sl/hashTable" useFile
+"sl/array" useFile
+"sl/arrayRange" useFile
+"sl/algorithm" useFile
+"utils" useFile
+
+EasyInterpreter: [{
+  system:;
+  parser: {"parser" useFile};
+
+  translateOffset: [
+    s:offset:; textSplit;
+    line: 0;
+    column: 0;
+    i: 0;
+    [offset 0 = ~] [
+      offset 1 - !offset
+      i 1 + !i
+      i s @ LF =
+      [line 1 + !line 0 !column]
+      [column 1 + !column] if
+    ] while
+    line 1 + column
+  ] func;
+
+  back: [l:; l fieldCount 1 - l @] func;
+
+  #value types
+  Int8: [{
+    IS_INT8: ();
+    value:;
+  }] func;
+
+  Int16: [{
+    IS_INT16: ();
+    value:;
+  }] func;
+
+  Int32: [{
+    IS_INT32: ();
+    value:;
+  }] func;
+
+  Int64: [{
+    IS_INT64: ();
+    value:;
+  }] func;
+
+  IntX: [{
+    IS_INTX: ();
+    value:;
+  }] func;
+
+  Nat8: [{
+    IS_NAT8: ();
+    value:;
+  }] func;
+
+  Nat16: [{
+    IS_NAT16: ();
+    value:;
+  }] func;
+
+  Nat32: [{
+    IS_NAT32: ();
+    value:;
+  }] func;
+
+  Nat64: [{
+    IS_NAT64: ();
+    value:;
+  }] func;
+
+  NatX: [{
+    IS_NATX: ();
+    value:;
+  }] func;
+
+  Real32: [{
+    IS_REAL32: ();
+    value:;
+  }] func;
+
+  Real64: [{
+    IS_REAL64: ();
+    value:;
+  }] func;
+
+  Cond: [{
+    IS_COND: ();
+    value:;
+  }] func;
+
+  StringI: [{
+    IS_STRING: ();
+    value:;
+  }] func;
+
+  SourceText: [{
+    IS_STRING: ();
+	  IS_SOURCE_TEXT: ();
+    value:;
+  }] func;
+
+  Code: [{
+    IS_CODE: ();
+    program:;
+  }] func;
+
+  Combined: [{
+    IS_COMBINED: ();
+    fields:;
+    referenceCount: 1;
+    addRef: [referenceCount 1 + !referenceCount] func;
+    remRef: [referenceCount 1 - !referenceCount] func;
+  }] func;
+
+  Field: [{
+    name:value:;;
+  }] func;
+
+  Node: [{
+    locals: ();
+    astNodes:;
+    astNodeIndex: 0;
+    suppressErrors: FALSE;
+    isSuppressorOfErrors: FALSE;
+    isBuiltinUseFile: FALSE;
+    isDeletionNode: FALSE;
+    stage: 0;
+    state: ();
+    status: 0;
+  }] func;
+
+  ReleaseState: [{
+    savedStack: 0;
+  }] func;
+
+  ProcessNameState: [{
+    savedStack: 0;
+    astNodes:0;
+    callIndex: -1;
+  }] func;
+
+  ProcessNameMemberState: [{
+    savedStack: 0;
+    callIndex: 0nx;
+    savedValue: 0;
+    savedFieldValue: 0;
+  }] func;
+
+  BuiltinState: [{
+    savedValue: 0;
+    shouldClear: 0;
+    globalOffset: "";
+    savedLocals: 0;
+    astNodes: 0;
+    savedIndex: 0nx;
+  }] func;
+
+  ProcessListState: [{
+    reservedStack:;
+  }] func;
+
+  TextInfo: [{
+    text:;
+    builtin: 0;
+    values: ();
+  }] func;
+
+  callText:     0;
+  closureText:  0;
+  dieText:      0;
+  emptyText:    0;
+  preText:      0;
+  selfText:     0;
+  lfText:      LF;
+  #() () 0nx --- importedFunction
+  ImportedFunction: [{
+    argTypes:resultType:funcPtr:;;;
+  }] func;
+
+  sourceTexts: HashTable;
+  texts: HashTable;
+  dynamicImports: HashTable;
+  files: HashTable;
+  nodes: ();
+  stack: ();
+  reservedStack: 0;
+
+
+  init: [
+    "CALL"    dup TextInfo texts.insert "CALL"    texts.find drop !callText
+    "closure" dup TextInfo texts.insert "closure" texts.find drop !closureText
+    "DIE"     dup TextInfo texts.insert "DIE"     texts.find drop !dieText
+    ""        dup TextInfo texts.insert ""        texts.find drop !emptyText
+    "PRE"     dup TextInfo texts.insert "PRE"     texts.find drop !preText
+    "self"    dup TextInfo texts.insert "self"    texts.find drop !selfText
+    initBuiltins
+  ] func;
+
+  isInt: [
+    isInt': [drop FALSE] func;
+    isInt': [.IS_INT8  TRUE] [drop TRUE] pfunc;
+    isInt': [.IS_INT16 TRUE] [drop TRUE] pfunc;
+    isInt': [.IS_INT32 TRUE] [drop TRUE] pfunc;
+    isInt': [.IS_INT64 TRUE] [drop TRUE] pfunc;
+    isInt': [.IS_INTX  TRUE] [drop TRUE] pfunc;
+    isInt'
+  ] func;
+
+  isNat: [
+    isNat': [drop FALSE] func;
+    isNat': [.IS_NAT8  TRUE] [drop TRUE] pfunc;
+    isNat': [.IS_NAT16 TRUE] [drop TRUE] pfunc;
+    isNat': [.IS_NAT32 TRUE] [drop TRUE] pfunc;
+    isNat': [.IS_NAT64 TRUE] [drop TRUE] pfunc;
+    isNat': [.IS_NATX  TRUE] [drop TRUE] pfunc;
+    isNat'
+  ] func;
+
+  isAnyInt: [dup isInt swap isNat or] func;
+
+  isReal: [
+    isReal': [drop FALSE] func;
+    isReal': [.IS_REAL32 TRUE] [drop TRUE] pfunc;
+    isReal': [.IS_REAL64 TRUE] [drop TRUE] pfunc;
+    isReal'
+  ] func;
+
+  isNumber: [dup isAnyInt swap isReal or] func;
+
+  isAnyOf: [p:l:;; result: FALSE; l [@p call result or  !result] each result] func;
+  isAllOf: [p:l:;; result: TRUE;  l [@p call result and !result] each result] func;
+  isNoneOf: [isAnyOf ~] func;
+
+  hasField: [name:; list: .fields;  [.name.text name =] list isAnyOf] func;
+
+  findFieldString: [swap 1 - swap findFieldString] func;
+  findFieldString: [@ .name.text  =] [drop nip] pfunc;
+  findFieldString: [drop -1       =] [drop nip] pfunc;
+  findFieldTextInfo: [swap 1 - swap findFieldTextInfo] func;
+  findFieldTextInfo: [@ .name is] [drop nip] pfunc;
+  findFieldTextInfo: [drop -1  =] [drop nip] pfunc;
+  findField: [dup fieldCount 1 - swap findFieldString] func;
+  findField: [drop .text TRUE] [dup fieldCount 1 - swap findFieldTextInfo] pfunc;
+
+  isList: [drop FALSE] func;
+  isList: [.IS_COMBINED TRUE] [list: .fields; [.name.text "" =] list isAllOf] pfunc;
+
+  isSourceText: [drop FALSE] func;
+  isSourceText: [.IS_SOURCE_TEXT TRUE] [drop TRUE] pfunc;
+
+  isString: [drop FALSE] func;
+  isString: [.IS_STRING TRUE] [drop TRUE] pfunc;
+
+  isCombined: [drop FALSE] func;
+  isCombined: [.IS_COMBINED TRUE] [drop TRUE] pfunc;
+
+  isCode: [drop FALSE] func;
+  isCode: [.IS_CODE TRUE] [drop TRUE] pfunc;
+
+  isCond: [drop FALSE] func;
+  isCond: [.IS_COND TRUE] [drop TRUE] pfunc;
+
+  isSame: [same] func;
+
+  toString: [isCond    ] [.value ["TRUE"] ["FALSE"] if] pfunc;
+  toString: [isCombined] [fields: .fields; "{" fields [field:; " " field.name.text & ": " & field.value toString  & ";" & &] foldl " }" &] pfunc;
+  toString: [isCode    ] [drop "[CODE]"] pfunc;
+  toString: [isList    ] [fields: .fields; "(" fields [.value toString " "  swap & &] foldl " )" &] pfunc;
+  toString: [isNumber  ] [.value toText] pfunc;
+  toString: [isString  ] [.value copy] pfunc;
+
+  isSame: [
+    v0:v1:;;
+    v0 v1 same [
+      v1 isCombined [
+        TRUE
+        i: 0; [
+          field0: i v0.fields @;
+          field1: i v1.fields @;
+          field1.name field0.name is and field1.value field0.value isSame and
+          dup i v0.fields fieldCount < and
+        ] loop
+      ] [TRUE] if
+    ] [FALSE] if
+  ] func;
+
+  copy: [.IS_COMBINED TRUE] [dup .addRef] pfunc;
+
+  clone: [copy] func;
+  clone: [.IS_COMBINED TRUE] [l:; () l.fields [field:; field.name field.value copy Field ,] foldl Combined] pfunc;
+
+  dumpStack: [stack [toString println] each] func;
+
+  printList': [i:l:;; l i fieldName print ": " print i l @ println i 1 + l printList'] func;
+  printList': [fieldCount =] [drop drop] pfunc;
+  printList:  [0 swap printList'] func;
+
+  release: {
+    CALL: [
+      node: nodes back;
+      state: node.state;
+      node.stage stages @ call
+    ];
+
+    stages: (
+      # 0
+      [
+        fields: .value.fields;
+        dieIndex: dieText fields findField;
+        ReleaseState node.state set
+
+        callDie: [3 node.!stage] func;
+        callDie: [dieIndex fields @ .value .IS_CODE TRUE] [
+          1 node.!stage
+          fields registerNames
+          stack state.!savedStack
+          () !stack
+          TRUE node.!isSuppressorOfErrors
+          dieIndex fields @ .value.program addNode
+          TRUE nodes back .!suppressErrors
+        ] pfunc;
+        callDie
+      ]
+      # 1
+      [FALSE node.!isSuppressorOfErrors
+        2 node.!stage
+        .value.fields unregisterNames
+        () addNode
+        TRUE nodes back .!isDeletionNode
+        stack [destroyValue] each
+      ]
+      # 2
+      [3 node.!stage
+        node.state.savedStack !stack
+        drop
+      ]
+      # 3
+      [4 node.!stage
+        astNode:;
+        () addNode
+        TRUE nodes back .!isDeletionNode
+        astNode.value.fields [.value destroyValue] each
+      ]
+      #4
+      [0 node.!stage
+        nextInstruction
+        drop
+      ]
+    );
+  };
+
+  destroyValue: [
+    destroyValue': [drop] func;
+    destroyValue': [.referenceCount 1 =] [
+      value:;
+      nodes back .isDeletionNode ~ [() addNode TRUE nodes back .!isDeletionNode] when
+	  filenameID: "MPLI INTERNAL: DESTRUCT NODE";
+      nodes back  .astNodes value parser.DestructNode, drop
+    ] pfunc;
+    destroyValue': [.referenceCount 1 = ~] [.remRef] pfunc;
+    destroyValue'
+  ] func;
+
+  callImportedFunction: [
+    importedFunction:;
+    stack fieldCount importedFunction.argTypes fieldCount < [
+      "stack underflow"
+    ] [
+      stack fieldCount reservedStack - importedFunction.argTypes fieldCount < [
+        stack fieldCount importedFunction.argTypes fieldCount - !reservedStack
+      ] when
+      insSize: importedFunction.argTypes fieldCount;
+      stackSize: stack fieldCount;
+      () i: 0; [
+        stackSize insSize - i + stack @ val:;
+        val i importedFunction.argTypes @ same ~ [
+          FALSE
+        ] [
+          val.value ,
+          i 1 + !i
+          i insSize <
+        ] if
+      ] loop
+      preparedIns:;
+      preparedIns fieldCount insSize = ~ [
+        "invalid arguments"
+      ] [
+        stack insSize untailN
+        preparedIns
+        importedFunction.resultType [.value] map
+        importedFunction.funcPtr
+        system.callImportedFunction [
+          constructOnStack
+        ] [
+          drop
+        ] if
+        nextInstruction ""
+      ] if
+    ] if
+  ] func;
+
+  registerName: [textInfo:value:;; textInfo.values value, drop] func;
+
+  registerNames: [fields:; i: 0; [i fields @ field:; field.name field.value registerName i 1 + !i i fields fieldCount  <] loop] func;
+
+  unregisterName: [.values untail drop drop] func;
+
+  unregisterNames: [[.name unregisterName] each] func;
+
+  addLocal: [Field nodes back .locals swap , back  field:; field.name field.value registerName] func;
+
+  addNode: [Node  nodes back .suppressErrors swap nodes swap , back .!suppressErrors] func;
+
+  removeNode: [
+    node: nodes back;
+    locals: node.locals;
+    removeNode': [locals untail nip field:; field.name unregisterName field.value destroyValue] func;
+    removeNode': [locals fieldCount 0 =] [nodes untail drop drop] pfunc;
+    removeNode'
+  ] func;
+
+  start: [
+    filename:;
+    system.hasFileSystem ~ [
+      "Cannot find filesystem"
+    ] [
+      filename system.loadFile ~ [
+        drop "Cannot load file" printsp filename println
+      ] [
+        program:;
+        init
+        parserResult: program 1 parser.parseString;
+        parserResult "data" has ~ [
+          line:column: program parserResult.offset translateOffset;;
+          "Lexical analysis failed at " filename & "(" & line toText & "," & column toText & ")" & println
+        ] [
+          "Lexical analysis succeed." println
+          filename program files.insert
+          filename parserResult.data prepareAst Node nodes swap , drop
+          interpret println LF print
+          stack fieldCount 0 =
+          ["stack is empty" println]
+          ["stack:" println dumpStack stack printList] if
+        ] if
+      ] if
+    ] if
+  ] func;
+
+  interpret: [
+    message: "";
+    [nodes fieldCount 0 = ~] [
+      node: nodes back;
+      astNodes: node.astNodes;
+      astNodeIndex: node.astNodeIndex;
+      astNodeIndex astNodes fieldCount = [
+        node.isBuiltinUseFile [
+          node.locals nodes fieldCount 2 - nodes @ .state.!savedLocals
+          () node.!locals
+        ] when
+        removeNode
+      ] [
+        astNodeIndex astNodes @ processNode !message
+        message "" = ~ [
+          node.suppressErrors [
+            "" !message
+            nodesIndex: nodes fieldCount; [
+              nodesIndex 1 - !nodesIndex
+              suppressedNode: nodesIndex nodes @;
+              suppressedNode.astNodes fieldCount suppressedNode.!astNodeIndex
+              0 suppressedNode.!status
+              0 suppressedNode.!stage
+              nodesIndex 1 - nodes @ .isSuppressorOfErrors ~
+            ] loop
+          ] [
+            [nodes fieldCount 0 = ~] [
+              astNode: nodes back .astNodeIndex nodes back .astNodes @;
+              program: astNode.filename files.find drop;
+              line:column: program astNode.offset translateOffset ;;
+              message textSplit back LF = ~
+              [astNode.filename copy "(" & line toText & "," & column toText & "): error, [" & processError & "], " &  message & LF & !message]
+              [message copy astNode.filename & "(" & line toText & "," & column toText & "): [" & processError  & "], called from here" & LF & !message]
+              if
+              nodes untail drop drop
+            ] while
+          ] if
+        ] when
+      ] if
+    ] while
+    message
+  ] func;
+
+  registerText: [drop] func;
+  registerText: [.STRING_NODE TRUE] [
+    node:; value: node.value;
+    value sourceTexts.find ~ [
+      drop
+      sourceText: value SourceText;
+      value sourceText sourceTexts.insert sourceText
+    ] when
+    node.!value
+  ] pfunc;
+  registerText: [.name "" same] [
+    node:; text: node.name; text texts.find ~ [
+      drop
+      textValue: text TextInfo;
+      textValue node.!name
+      text textValue texts.insert textValue
+    ] when
+    node.!name
+  ] pfunc;
+
+  addFileName: [filename:node:;;  filename node.!filename] func;
+
+  prepareAst': [
+    filename:i:l:;;;
+    node: i l @;
+    filename node addFileName
+    node registerText
+    node ,
+    filename i 1 + l prepareAst'
+  ] func;
+  prepareAst': [@ .COMMENT_NODE TRUE] [
+    filename:i:l:;;;
+    #node:i l @;
+    #filename node addFileName
+    #node registerText
+    filename i 1 + l prepareAst'
+  ] pfunc;
+  prepareAst': [@ .children TRUE] [
+    filename:i:l:;;;
+    node:i l @;
+    filename node addFileName
+    node registerText
+    filename node .children prepareAst  node .!children node ,
+    filename i 1 + l prepareAst'
+  ] pfunc;
+  prepareAst': [@ .LABEL_NODE TRUE] [
+    filename:i:l:;;;
+    node:i l @;
+    filename node addFileName
+    node registerText
+    filename node .children
+    prepareAst & () node .!children node ,
+    filename  i 1 + l prepareAst'
+  ] pfunc;
+  prepareAst': [@ .LABELRESET_NODE TRUE] [
+    filename:i:l:;;;
+    node:i l @;
+    filename node addFileName
+    node registerText
+    filename node .children prepareAst & () node .!children node ,
+    filename i 1 + l prepareAst'
+  ] pfunc;
+  prepareAst': [fieldCount =] [drop drop drop] pfunc;
+  prepareAst:  [filename:l:;; () filename 0 l prepareAst'] func;
+
+  "processors" useFile
+  "builtins" useFile
+
+}] func;

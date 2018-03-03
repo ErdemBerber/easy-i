@@ -1,0 +1,61 @@
+"sl/control" useFile
+untailN': [i:n:;; untail drop i 1 + n untailN'] func;
+untailN': [=] [drop drop drop] pfunc;
+untailN:  [l:n:;; l 0 n untailN'] func;
+
+preif: [
+  preifF:preifF: func; pfunc;
+  preifF
+] func;
+
+fieldNames: [
+  object:;
+  (
+    @object fieldCount [
+      @object i fieldName
+    ] times
+  )
+] func;
+
+touch: [drop] func;
+touch: [0 >] [swap x:; 1 - touch @x] pfunc;
+
+ArrayView: [{
+  ARRAY_VIEW:();
+  storage:l:r:;;;
+  slice1: [l':; storage l l' + r ArrayView] func;
+  slice2: [l':r':;; storage l l' + l r' + ArrayView] func;
+}] func;
+
+@: [.ARRAY_VIEW TRUE] [av:; av.l + av.storage @] pfunc;
+fieldCount: [.ARRAY_VIEW TRUE] [av:; av.r av.l -] pfunc;
+
+unwrap: [() & TRUE] [x:untail; unwrap x] pfunc;
+unwrap: [()   same] [drop] pfunc;
+
+unwrap': [fieldCount <] [i:l:;; i l @ i 1 + l unwrap'] pfunc;
+unwrap': [fieldCount =] [drop drop] pfunc;
+
+debug: [printStack LF print LF print] func;
+
+transform': [fieldCount <] [f__:i:l:;;; i l @ @f__ call i l ! @f__ i 1 + l transform'] pfunc;
+transform': [fieldCount =] [nip nip] pfunc;
+transform: [f__:xs:;; @f__ 0 xs transform'] func;
+
+sconcat: [xs:; "" xs [swap copy swap &]  foldl] func;
+
+concat: [xs:; () xs [&]  foldl] func;
+
+accsum': [mult:base:i:l:;;;; i l @ base cast mult * + mult base * base i 1 - l accsum'] func;
+accsum': [drop -1 =] [drop drop drop drop] pfunc;
+accsum:  [l:base:;; 0 base cast 1 base cast base l fieldCount  1 - l accsum'] func;
+
+beginsWith: [
+  beginsWith': [s:i:p:;;; i s @ i p @ = [s i 1 + p beginsWith'] [FALSE] if] func;
+  beginsWith': [fieldCount =] [drop drop drop TRUE] pfunc;
+  0 swap beginsWith'
+] func;
+beginsWith: [p:; fieldCount p fieldCount <] [drop drop FALSE] pfunc;
+
+println: [print LF print] func;
+printsp: [print " " print] func;

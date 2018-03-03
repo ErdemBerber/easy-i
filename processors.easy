@@ -1,0 +1,537 @@
+
+nextInstruction: [node: nodes back; node.astNodeIndex 1 + node.!astNodeIndex] func;
+processNode: ["unknown node"] func;
+
+processNode: [.NUMBERI8_NODE TRUE] [
+  .value stack swap Int8, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERI16_NODE TRUE] [
+  .value stack swap Int16, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERI32_NODE TRUE] [
+  .value stack swap Int32, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERI64_NODE TRUE] [
+  .value stack swap Int64, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERIX_NODE TRUE] [
+  .value stack swap IntX, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERN8_NODE TRUE] [
+  .value stack swap Nat8, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERN16_NODE TRUE] [
+  .value stack swap Nat16, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERN32_NODE TRUE] [
+  .value stack swap Nat32, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERN64_NODE TRUE] [
+  .value stack swap Nat64, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.NUMBERNX_NODE TRUE] [
+  .value stack swap NatX, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.REAL32_NODE TRUE] [
+  .value stack swap Real32, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.REAL64_NODE TRUE] [
+  .value stack swap Real64, drop ""
+  nextInstruction
+] pfunc;
+
+
+processNode: [.STRING_NODE TRUE] [
+  .value stack swap, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.CODE_NODE TRUE] [
+  .children stack swap Code, drop ""
+  nextInstruction
+] pfunc;
+
+processNode: [.LABEL_NODE TRUE] [
+  astNode:;
+  node: nodes back;
+  stack fieldCount 1 < [
+    "stack underflow"
+  ] [
+    stack fieldCount reservedStack - 1 < [
+      stack fieldCount 1 - !reservedStack
+    ] when
+    astNode.name stack untail nip addLocal
+    nextInstruction
+    ""
+  ] if
+] pfunc;
+
+processList: {
+  CALL: [
+    astNode:;
+    node: nodes back;
+    node.stage stages @ call
+  ];
+  stages: (
+    #0
+    [1 node.!stage
+      reservedStack ProcessListState node.!state
+      stack fieldCount !reservedStack
+      astNode.children addNode ""
+    ]
+    #1
+    [size: stack fieldCount reservedStack -;
+      list: ();
+      [stack fieldCount reservedStack = ~]
+      [stack untail nip emptyText swap (Field) list & !list] while
+      stack list Combined, drop
+      node.state.reservedStack reservedStack min !reservedStack
+      nextInstruction
+      0 node.!stage ""
+    ]
+  );
+};
+
+processNode: [.LIST_NODE TRUE] [
+  processList
+] pfunc;
+
+processObject: {
+  CALL: [
+    astNode:;
+    node: nodes back;
+    node.stage stages @ call
+  ];
+  stages: (
+    #0
+    [1 node.!stage  astNode.children addNode ""]
+    #1
+    [0 node.!stage nextInstruction ""]
+  );
+};
+processNode: [.OBJECT_NODE TRUE] [
+  processObject
+] pfunc;
+
+processNode: [.OBJECTEND_NODE TRUE] [
+  drop
+  node: nodes back;
+  node.locals unregisterNames
+  stack node.locals  Combined , drop
+  () node.!locals
+  nextInstruction ""
+] pfunc;
+
+processNode: [.NAMEREAD_NODE TRUE] [
+  astNode:;
+  astNode.name.values fieldCount 0 = [
+    "unknown name"
+  ] [
+    stack astNode.name.values back copy, drop ""
+    nextInstruction
+  ] if
+] pfunc;
+
+processNameWrite: {
+  CALL: [nodes back .stage stages @ call];
+  stages: (
+    #0
+    [
+      1 nodes back .!stage
+      astNode.name.values fieldCount 0 = [
+        "unknown name"
+      ] [
+        stack fieldCount 1 < [
+          "stack underflow"
+        ] [
+          stack fieldCount reservedStack - 1 < [
+            stack fieldCount 1 - !reservedStack
+          ] when
+          value: astNode.name.values back;
+          value destroyValue ""
+        ] if
+      ] if
+    ]
+    # 1
+    [
+      0 nodes back .!stage
+      stack untail astNode.name.values back set drop
+      nextInstruction ""
+    ]
+  );
+};
+processNode: [.NAMEWRITE_NODE TRUE] [
+  astNode:;
+  processNameWrite
+] pfunc;
+
+processName: {
+  stages: (
+    #EXACTLY_FIRST ENTER = 0
+    [ProcessNameState node.!state
+      1 stages @ call
+    ]
+    #FIRST_ENTER = 1
+    [
+      state: node.state;
+      node.stage 1 + node.!stage
+      node.stage textInfo.values fieldCount > [
+        textInfo.text dynamicImports.find [
+          0 node.!stage
+          0 node.!status
+          callImportedFunction
+        ] [
+          drop
+          textInfo.@builtin 0 same [
+            "unknown name"
+          ] [
+            0 node.!stage
+            0 node.!status
+            textInfo.@builtin call
+          ] if
+        ] if
+      ] [
+        value: textInfo.values fieldCount node.stage - textInfo.values @ ;
+        value isCombined ~ [
+          stack value copy, drop
+          0 node.!stage
+          0 node.!status
+          nextInstruction ""
+        ] [
+          callIndex: callText value.fields findField;
+          callCall: [FALSE] func;
+          callCall: [callIndex value.fields @ .value .IS_CODE TRUE] [
+            value.fields registerNames
+            closureText value registerName
+            preIndex: preText value.fields findField;
+            callPre: [FALSE] func;
+            callPre: [preIndex value.fields @ .value .IS_CODE TRUE] [
+              () stack [copy ,] foldl state.!savedStack
+              callIndex state.!callIndex
+              TRUE node.!isSuppressorOfErrors
+              preIndex value .fields @ .value .program addNode
+              TRUE nodes back .!suppressErrors
+              2 node.!status
+              TRUE
+            ] pfunc;
+
+            callPre ~ [
+              callIndex value .fields @ .value .program addNode
+              5 node.!status
+            ] when
+            TRUE
+          ] pfunc;
+
+          callCall ~ [
+            0 node.!stage
+            0 node.!status
+            stack value copy, drop
+            nextInstruction
+          ] when
+          ""
+        ] if
+      ] if
+    ]
+    # PRE_CALLED = 2
+    [
+
+      check: [3 node.!status] func;
+      check: [stack back .value] [4 node.!status] pfunc;
+      check
+      FALSE node.!isSuppressorOfErrors
+      stack [destroyValue] each
+      node.state.savedStack !stack
+      () node.state.!savedStack
+      ""
+    ]
+    #PRE_FAILED = 3
+    [
+      value: textInfo.values fieldCount node.stage - textInfo.values @;
+      value.fields unregisterNames
+      closureText unregisterName
+      1 node.!status
+      ""
+    ]
+    #PRE_SUCCEEDED = 4
+    [
+      value: textInfo.values fieldCount node.stage - textInfo.values @;
+      5 node.!status
+      node.state.callIndex value.fields @ .value .program addNode ""
+    ]
+    #CALL_CALLED = 5
+    [
+      value: textInfo.values fieldCount node.stage - textInfo.values @;
+      0 node.!status
+      0 node.!stage
+      value.fields unregisterNames
+      closureText unregisterName
+      nextInstruction ""
+    ]
+  );
+  CALL: [node.status stages  @ call];
+};
+processNode: [.NAME_NODE TRUE] [
+  textInfo:.name;
+  node: nodes back;
+  node.stage 0 = node.status 0 = ~ and [
+    textInfo.@builtin call
+  ] [
+    processName
+  ] if
+] pfunc;
+
+processNameReadMember: {
+  CALL: [node.stage stages @ call];
+  stages: (
+    #0
+    [
+      stack fieldCount 1 < [
+        "stack underflow"
+      ] [
+        stack fieldCount reservedStack - 1 < [
+          stack fieldCount 1 - !reservedStack
+        ] when
+        list: stack untail nip;
+        list isCombined ~ [
+          "not a list"
+        ] [
+          fieldIndex: astNode.name list.fields findField;
+          fieldIndex -1  = [
+            "unknown field"
+          ] [
+            stack fieldIndex list.fields @ .value copy , drop
+            list destroyValue ""
+            1 node.!stage
+          ] if
+        ] if
+      ] if
+    ]
+    #1
+    [
+      0 node.!stage
+      nextInstruction ""
+    ]
+  );
+};
+processNode: [.NAMEREADMEMBER_NODE TRUE] [
+  node: nodes back;
+  astNode:;
+  processNameReadMember
+] pfunc;
+
+processNameWriteMember: {
+  CALL: [node.stage stages @ call];
+  stages: (
+    #0
+    [
+      stack fieldCount 2 < [
+        "stack underflow"
+      ] [
+        stack fieldCount reservedStack - 2 < [
+          stack fieldCount 2 - !reservedStack
+        ] when
+        list: stack untail;
+        value: untail; drop
+        list isCombined ~ [
+          "not a list"
+        ] [
+          fieldIndex: astNode.name list.fields findField;
+          fieldIndex -1 = [
+            "unknown field"
+          ] [
+            fieldIndex list.fields @ .value destroyValue
+            value fieldIndex list.fields @ .!value
+            list destroyValue
+            1 node.!stage ""
+          ] if
+        ] if
+      ] if
+    ]
+    #1
+    [
+      0 node.!stage
+      nextInstruction ""
+    ]
+  );
+};
+processNode: [.NAMEWRITEMEMBER_NODE TRUE] [
+  node: nodes back;
+  astNode:;
+  processNameWriteMember
+] pfunc;
+
+processNameMember: {
+  CALL: [node.status stages @ call];
+  stages: (
+    # EXACTLY FIRST_ENTER = 0
+    [
+      ProcessNameMemberState node.!state
+      stack fieldCount 1 < [
+        "stack underflow"
+      ] [
+        stack fieldCount reservedStack - 1 < [
+          stack fieldCount 1 - !reservedStack
+        ] when
+        list: stack back;
+        list isCombined ~ [
+          "not a list"
+        ] [
+          astNode.name list.fields findField node.!stage
+          node.stage -1 = [
+            "unknown field"
+          ] [
+            list node.state.!savedValue
+            stack untail drop drop
+            value: node.stage list.fields @ .value;
+            value node.state.!savedFieldValue
+            value isCombined ~ [
+              stack value copy , drop
+              list destroyValue
+              6 node.!status ""
+            ] [
+              list.fields registerNames
+              selfText list registerName
+              1 node.!status ""
+            ] if
+          ] if
+        ] if
+      ] if
+    ]
+    # FIRST_ENTER = 1
+    [
+      list: node.state.savedValue;
+      fieldIndex: node.stage;
+      value: node.state.savedFieldValue;
+      callIndex: callText value.fields findField;
+      callIndex node.state.!callIndex
+      callCall: [FALSE] func;
+      callCall: [callIndex value.fields @ .value .IS_CODE TRUE] [
+        value.fields registerNames
+        closureText value registerName
+        preIndex: preText value.fields findField;
+        callPre: [FALSE] func;
+        callPre: [preIndex value.fields @ .value .IS_CODE TRUE] [
+          () stack [copy ,] foldl node.state.!savedStack
+          callIndex node.state.!callIndex
+          TRUE node.!isSuppressorOfErrors
+          preIndex value .fields @ .value .program addNode
+          TRUE nodes back .!suppressErrors
+          2 node.!status
+          TRUE
+        ] pfunc;
+
+        callPre ~ [
+          callIndex value .fields @ .value .program addNode
+          5 node.!status
+        ] when
+        TRUE
+      ] pfunc;
+      callCall ~ [
+        stack value copy, drop
+        list destroyValue
+        6 node.!status
+      ] when
+      ""
+    ]
+    #PRE_CALLED = 2
+    [
+      check: [3 node.!status] func;
+      check: [stack back .value] [4 node.!status] pfunc;
+      check
+      FALSE node.!isSuppressorOfErrors
+      stack [destroyValue] each
+      node.state.savedStack !stack
+      () node.state.!savedStack
+      ""
+    ]
+    #PRE_FAILED = 3
+    [
+      list: node.state.savedValue;
+      value: node.state.savedFieldValue;
+      closureText unregisterName
+      value.fields unregisterNames
+      astNode.name node.stage 1 - list.fields findFieldTextInfo node.!stage
+      node.stage -1 = [
+        "unknown field"
+      ] [
+        node.stage list.fields @ .value !value
+        value node.state.!savedFieldValue
+        value isCombined ~ [
+          value copy stack fieldCount 1 - stack !
+          6 node.!status ""
+        ] [
+          1 node.!status ""
+        ] if
+      ] if
+    ]
+    #PRE_SUCCEEDED = 4
+    [
+      5 node.!status
+      node.state.callIndex node.stage node.state.savedValue.fields @ .value .fields @ .value .program addNode ""
+    ]
+    #CALL_CALLED = 5
+    [
+      6 node.!status
+      list: node.state.savedValue;
+      value: node.state.savedFieldValue;
+      closureText unregisterName
+      value.fields unregisterNames
+      selfText unregisterName
+      list.fields unregisterNames
+      list destroyValue ""
+    ]
+    #PROCESSOR_CLEAR = 6
+    [
+      0 node.!stage
+      0 node.!status
+      nextInstruction ""
+    ]
+  );
+};
+processNode: [.NAMEMEMBER_NODE TRUE] [
+  node: nodes back;
+  astNode:;
+  processNameMember
+] pfunc;
+
+processNode: [.DESTRUCT_NODE TRUE] [
+  release ""
+] pfunc;
+
+processError': [.value toString] func;
+processError': [.STRING_NODE          TRUE] [drop "TEXT"] pfunc;
+processError': [.LABELRESET_NODE      TRUE] [.name.text copy "!:" &] pfunc;
+processError': [.LABEL_NODE           TRUE] [.name.text copy ":" &] pfunc;
+processError': [.CODE_NODE            TRUE] [drop "["] pfunc;
+processError': [.OBJECTEND_NODE       TRUE] [drop "}"] pfunc;
+processError': [.OBJECT_NODE          TRUE] [drop "{"] pfunc;
+processError': [.LIST_NODE            TRUE] [drop "("] pfunc;
+processError': [.NAMEWRITE_NODE       TRUE] ["!" swap copy .name.text &] pfunc;
+processError': [.NAMEREAD_NODE        TRUE] ["@" swap .name.text &]  pfunc;
+processError': [.NAME_NODE            TRUE] [.name.text] pfunc;
+processError': [.NAMEMEMBERWRITE_NODE TRUE] [".!" swap copy .name.text &] pfunc;
+processError': [.NAMEMEMBERREAD_NODE  TRUE] [".@" swap copy .name.text &] pfunc;
+processError': [.NAMEMEMBER_NODE      TRUE] ["." swap copy.name.text &] pfunc;
+processError:  [node: nodes back; node.astNodeIndex node.astNodes @ processError'] func;

@@ -86,9 +86,9 @@ WindowsSystem: {
     FILE_SHARE_READ: 0x00000001;
     OPEN_EXISTING: 3i32;
     fileHandle:  name GENERIC_READ FILE_SHARE_READ NULL OPEN_EXISTING 0i32 NULL CreateFileA;
-    fileHandle -1nx = [
+    fileHandle 0xffffffffnx = [
       "Load file " name & " error " & print GetLastError print LF print
-	    ""
+      ""
       FALSE
     ] [
       fileSizePointer: 8n32 allocateMemory;

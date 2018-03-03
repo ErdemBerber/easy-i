@@ -98,7 +98,7 @@ EasyInterpreter: [{
 
   SourceText: [{
     IS_STRING: ();
-	  IS_SOURCE_TEXT: ();
+    IS_SOURCE_TEXT: ();
     value:;
   }] func;
 
@@ -357,7 +357,7 @@ EasyInterpreter: [{
     destroyValue': [.referenceCount 1 =] [
       value:;
       nodes back .isDeletionNode ~ [() addNode TRUE nodes back .!isDeletionNode] when
-	  filenameID: "MPLI INTERNAL: DESTRUCT NODE";
+      filenameID: "MPLI INTERNAL: DESTRUCT NODE";
       nodes back  .astNodes value parser.DestructNode, drop
     ] pfunc;
     destroyValue': [.referenceCount 1 = ~] [.remRef] pfunc;
